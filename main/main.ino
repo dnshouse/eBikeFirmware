@@ -1,67 +1,135 @@
+/* Bluetooth */
 #include <SoftwareSerial.h>
 #include <ArduinoJson.h>
-SoftwareSerial BT(8, 9);
 
-const int INPUT_PIN = A0;
+/* Battery */
+#define BATTERY_PIN A7
+#define BATTERY_PIN_SAMPLES 10
+#define BATTERY_PIN_VOLTAGE_DIVIDER 16
+#define ANALOG_PIN_BASE_VOLTAGE 3.79
+#define MIN_BATTERY_VOLTAGE 43.2
+#define MAX_BATTERY_VOLTAGE 50.4
+
+/* Speed */
+#define SPEED_SENSOR_PIN 2
+#define CIRCUMFERENCE 2068
+
+/* Battery */
+int batteryPercentage = 0;
+float batteryVoltage = 0.0;
+unsigned int batteryPinSamplesSum = 0;
+unsigned char batteryPinSamplesCount = 0;
+unsigned long batteryVoltageSampleLastUpdate;
+unsigned long batteryVoltageLastPrint;
+
+/* Speed */
+volatile float currentSpeed, avgSpeed, tripDistance, odoMiles;
+volatile unsigned long speedSensorLastUpdate;
+
+/* Bluetooth */
+volatile unsigned long statusResponseSentAt;
+SoftwareSerial BT(8, 9); // RX, TX
 
 void setup()
 {
-  Serial.begin(9600);
-  
+  pinMode(BATTERY_PIN, INPUT);
+  pinMode(SPEED_SENSOR_PIN, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(SPEED_SENSOR_PIN), speedSensor, FALLING);
+
   BT.begin(9600);
-  pinMode(A0, INPUT);
 }
 
-void loop() 
+void loop()
 {
-  String serialRx = "";
+  batterySensor();
+  sendStatus();
 
-  if (BT.available())
+  if (millis() - speedSensorLastUpdate > 1500)
   {
-    serialRx = BTSerialRead();
-    
-    if(serialRx == "status"){
+    currentSpeed = 0;
+  }
+}
 
-      const int capacity = JSON_OBJECT_SIZE(6);
-      StaticJsonBuffer<capacity> jb;
-      JsonObject& obj = jb.createObject();
-
-      obj.set("status", "OK");
-      obj.set("batteryLevel", 67);
-      obj.set("speed", 14.8);
-      obj.set("avgSpeed", 7.5);
-      obj.set("tripDistance", 12.1);
-      obj.set("odoMiles", analogRead(INPUT_PIN));
-      
-      String serialTx = "";
-      obj.printTo(serialTx);
-            
-      BTSerialWrite(serialTx);
-      
-    }
+void batterySensor()
+{
+  if ((batteryPinSamplesCount < BATTERY_PIN_SAMPLES) && (millis() - batteryVoltageSampleLastUpdate > 10))
+  {
+    batteryPinSamplesSum += analogRead(BATTERY_PIN);
+    batteryPinSamplesCount++;
+    batteryVoltageSampleLastUpdate = millis();
   }
 
-  delay(100);
+  if ((batteryPinSamplesCount == BATTERY_PIN_SAMPLES))
+  {
+    batteryVoltage = (((float)batteryPinSamplesSum / (float)BATTERY_PIN_SAMPLES * ANALOG_PIN_BASE_VOLTAGE) / 1024.0) * BATTERY_PIN_VOLTAGE_DIVIDER;
+    batteryPercentage = map(batteryVoltage, MIN_BATTERY_VOLTAGE, MAX_BATTERY_VOLTAGE, 0, 100);
+    if (batteryPercentage < 0)
+    {
+      batteryPercentage = 0;
+    }
+
+    batteryPinSamplesCount = 0;
+    batteryPinSamplesSum = 0;
+  }
+}
+
+void speedSensor()
+{
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - speedSensorLastUpdate > 80)
+  {
+    tripDistance = tripDistance + (CIRCUMFERENCE / 1000000 * 0.621371);
+    odoMiles = tripDistance;
+
+    currentSpeed = CIRCUMFERENCE / 1000 / ((float)(currentMillis - speedSensorLastUpdate) / 1000) * 3.6 * 0.621371; // the current speed in miles
+
+    if(tripDistance > 0)
+    {
+      avgSpeed = tripDistance / (((float)(currentMillis) / 1000) * (1 / 3600));
+    }else{
+      avgSpeed = 0;  
+    }
+    
+    speedSensorLastUpdate = millis();
+  }
+}
+
+void sendStatus()
+{
+  if(millis() - statusResponseSentAt > 500)
+  {
+    const int capacity = JSON_OBJECT_SIZE(6);
+    StaticJsonBuffer<capacity> jb;
+    JsonObject& obj = jb.createObject();
+  
+    obj.set("status", "OK");
+    obj.set("batteryLevel", batteryPercentage);
+  
+    obj.set("tripDistance", tripDistance);
+    obj.set("odoMiles", odoMiles);
+  
+    obj.set("currentSpeed", currentSpeed);
+    obj.set("avgSpeed", avgSpeed);
+  
+    String serialTx = "";
+    obj.printTo(serialTx);
+  
+    BT.println(serialTx);
+
+    statusResponseSentAt = millis();
+  }
 }
 
 String BTSerialRead()
 {
   String outMessage = "";
-  while (BT.available() > 0) {
+  while (BT.available() > 0)
+  {
     char inChar = BT.read();
     outMessage.concat(inChar);
   }
 
-  return outMessage;  
+  return outMessage;
 }
-
-void BTSerialWrite(String outMessage)
-{
-  if (outMessage != "") {
-    BT.println(outMessage);
-    char* CharString;
-    outMessage.toCharArray(CharString, outMessage.length());
-    BT.write(CharString);
-  }
-}
-  
