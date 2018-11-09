@@ -38,7 +38,6 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(SPEED_SENSOR_PIN), speedSensor, FALLING);
 
   BT.begin(9600);
-  Serial.begin(9600);
 }
 
 void loop()
