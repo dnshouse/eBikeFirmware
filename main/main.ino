@@ -4,9 +4,9 @@
 
 /* Battery */
 #define BATTERY_PIN A7
-#define BATTERY_PIN_SAMPLES 10
+#define BATTERY_PIN_SAMPLES 20
 #define BATTERY_PIN_VOLTAGE_DIVIDER 16
-#define ANALOG_PIN_BASE_VOLTAGE 3.79
+#define ANALOG_PIN_BASE_VOLTAGE 3.94
 #define MIN_BATTERY_VOLTAGE 43.2
 #define MAX_BATTERY_VOLTAGE 50.4
 
@@ -38,6 +38,7 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(SPEED_SENSOR_PIN), speedSensor, FALLING);
 
   BT.begin(9600);
+  Serial.begin(9600);
 }
 
 void loop()
@@ -53,7 +54,7 @@ void loop()
 
 void batterySensor()
 {
-  if ((batteryPinSamplesCount < BATTERY_PIN_SAMPLES) && (millis() - batteryVoltageSampleLastUpdate > 10))
+  if ((batteryPinSamplesCount < BATTERY_PIN_SAMPLES) && (millis() - batteryVoltageSampleLastUpdate > 50))
   {
     batteryPinSamplesSum += analogRead(BATTERY_PIN);
     batteryPinSamplesCount++;
@@ -68,6 +69,8 @@ void batterySensor()
     {
       batteryPercentage = 0;
     }
+
+    avgSpeed = batteryVoltage;
 
     batteryPinSamplesCount = 0;
     batteryPinSamplesSum = 0;
